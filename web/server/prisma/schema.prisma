@@ -1,0 +1,381 @@
+// Arogya — Chronic Disease Management Platform
+// Prisma Schema v1.0
+// FHIR-compatible structure for future ABHA/NHA sync
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum Role {
+  PATIENT
+  DOCTOR
+  ADMIN
+}
+
+enum ConditionType {
+  DIABETES_T1
+  DIABETES_T2
+  HYPERTENSION
+  CKD
+  HEART_DISEASE
+  COPD
+  ASTHMA
+  OTHER
+}
+
+enum VitalSource {
+  MANUAL
+  DEVICE
+  IMPORTED
+}
+
+enum AdherenceStatus {
+  TAKEN
+  MISSED
+  SKIPPED
+  PENDING
+}
+
+enum ConsultStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum AlertType {
+  VITAL_ANOMALY
+  MED_MISSED
+  APPOINTMENT
+  LAB_RESULT
+  AI_FLAG
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// ─── Core Auth Models ────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(PATIENT)
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+
+  profile      Profile?
+  refreshTokens RefreshToken[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@map("users")
+}
+
+// Stored refresh tokens for rotation-based auth
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revokedAt DateTime? // null = still valid
+
+  @@index([userId])
+  @@index([token])
+  @@map("refresh_tokens")
+}
+
+// ─── Profile ─────────────────────────────────────────────────────────────────
+
+model Profile {
+  id          String    @id @default(uuid())
+  userId      String    @unique
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  firstName   String
+  lastName    String
+  dateOfBirth DateTime?
+  phone       String?
+  gender      String?
+  avatarUrl   String?
+
+  // Ayushman Bharat Health Account — FHIR patient identifier
+  abhaId      String?   @unique
+
+  // Doctor-specific fields
+  licenseNo   String?
+  speciality  String?
+  clinicName  String?
+  consultFee  Float?
+
+  // Relations
+  conditions    PatientCondition[]
+  vitals        VitalLog[]
+  medications   Medication[]
+  alerts        Alert[]
+
+  // Consultations as patient
+  patientConsultations Consultation[] @relation("PatientConsultations")
+
+  // Consultations conducted as doctor
+  doctorConsultations  Consultation[] @relation("DoctorConsultations")
+
+  // Patients linked to this doctor
+  assignedPatients DoctorPatient[] @relation("DoctorToPatient")
+  assignedDoctors  DoctorPatient[] @relation("PatientToDoctor")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("profiles")
+}
+
+// Junction table: doctor ↔ patient assignment
+model DoctorPatient {
+  id        String  @id @default(uuid())
+  doctorId  String
+  patientId String
+  doctor    Profile @relation("DoctorToPatient", fields: [doctorId], references: [id], onDelete: Cascade)
+  patient   Profile @relation("PatientToDoctor", fields: [patientId], references: [id], onDelete: Cascade)
+  assignedAt DateTime @default(now())
+
+  @@unique([doctorId, patientId])
+  @@index([doctorId])
+  @@index([patientId])
+  @@map("doctor_patients")
+}
+
+// ─── Conditions ───────────────────────────────────────────────────────────────
+
+model PatientCondition {
+  id            String        @id @default(uuid())
+  profileId     String
+  profile       Profile       @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  conditionType ConditionType
+  diagnosedAt   DateTime?
+  severity      String?       // mild / moderate / severe
+  notes         String?
+  icdCode       String?       // ICD-10 code for FHIR export
+  snomedCode    String?       // SNOMED CT for ABHA compliance
+  isActive      Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([profileId])
+  @@index([conditionType])
+  @@map("patient_conditions")
+}
+
+// ─── Vitals ───────────────────────────────────────────────────────────────────
+
+model VitalLog {
+  id        String  @id @default(uuid())
+  profileId String
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  recordedAt DateTime @default(now())
+
+  // All optional — log only what's measured
+  bloodGlucose Float?  // mg/dL — fasting/random
+  systolicBP   Int?    // mmHg
+  diastolicBP  Int?    // mmHg
+  heartRate    Int?    // bpm
+  weight       Float?  // kg
+  spo2         Int?    // % oxygen saturation
+  temperature  Float?  // Celsius
+  hba1c        Float?  // % — glycated haemoglobin
+  creatinine   Float?  // mg/dL — kidney function marker
+  egfr         Float?  // mL/min/1.73m² — estimated GFR
+  cholesterol  Float?  // mg/dL — total cholesterol
+
+  notes   String?
+  source  VitalSource @default(MANUAL)
+
+  // Offline sync tracking
+  localId  String?   // client-generated ID for deduplication
+  syncedAt DateTime? // null = pending sync
+
+  createdAt DateTime @default(now())
+
+  @@index([profileId, recordedAt])
+  @@index([profileId, source])
+  @@map("vital_logs")
+}
+
+// ─── Medications ─────────────────────────────────────────────────────────────
+
+model Medication {
+  id           String   @id @default(uuid())
+  profileId    String
+  profile      Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  name         String
+  genericName  String?
+  dosage       String   // e.g. "500mg"
+  frequency    String   // e.g. "twice daily", "every 8 hours"
+  route        String   @default("oral") // oral, subcutaneous, etc.
+  startDate    DateTime
+  endDate      DateTime?
+  prescribedBy String?  // doctor name or profileId
+  rxNumber     String?  // prescription reference
+  active       Boolean  @default(true)
+  notes        String?
+
+  adherenceLogs MedAdherenceLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([profileId, active])
+  @@map("medications")
+}
+
+model MedAdherenceLog {
+  id           String   @id @default(uuid())
+  medicationId String
+  medication   Medication @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+
+  scheduledAt DateTime
+  takenAt     DateTime?
+  status      AdherenceStatus @default(PENDING)
+  notes       String?
+
+  createdAt DateTime @default(now())
+
+  @@index([medicationId, scheduledAt])
+  @@map("med_adherence_logs")
+}
+
+// ─── Consultations ────────────────────────────────────────────────────────────
+
+model Consultation {
+  id          String @id @default(uuid())
+
+  // Patient being seen
+  patientId   String
+  patient     Profile @relation("PatientConsultations", fields: [patientId], references: [id])
+
+  // Doctor conducting the consultation
+  doctorId    String
+  doctor      Profile @relation("DoctorConsultations", fields: [doctorId], references: [id])
+
+  scheduledAt DateTime
+  completedAt DateTime?
+  duration    Int?      // minutes
+  status      ConsultStatus @default(SCHEDULED)
+
+  chiefComplaint String?
+  visitType      String?  // in-person / telemedicine
+
+  soapNote     SOAPNote?
+  prescription Prescription?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([scheduledAt])
+  @@map("consultations")
+}
+
+model SOAPNote {
+  id             String       @id @default(uuid())
+  consultationId String       @unique
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  subjective String? // patient-reported symptoms
+  objective  String? // examination findings, vitals
+  assessment String? // diagnosis / clinical impression
+  plan       String? // treatment plan, referrals, follow-up
+
+  // AI-generated draft saved separately — doctor edits before finalising
+  aiDraft      String?
+  aiGeneratedAt DateTime?
+  isDoctorEdited Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("soap_notes")
+}
+
+model Prescription {
+  id             String       @id @default(uuid())
+  consultationId String       @unique
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  items        PrescriptionItem[]
+  instructions String?           // general instructions (diet, rest, etc.)
+  followUpDate DateTime?
+  pdfUrl       String?           // generated PDF path
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("prescriptions")
+}
+
+model PrescriptionItem {
+  id             String       @id @default(uuid())
+  prescriptionId String
+  prescription   Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+
+  drugName        String
+  genericName     String?
+  dosage          String
+  frequency       String
+  duration        String   // "7 days", "1 month", "ongoing"
+  quantity        String?  // e.g. "30 tablets"
+  route           String   @default("oral")
+  specialInstr    String?  // "take with food", "avoid sunlight"
+
+  // Drug interaction flags (from AI check)
+  interactionFlag Boolean @default(false)
+  interactionNote String?
+  interactionSeverity String? // mild / moderate / severe
+
+  @@index([prescriptionId])
+  @@map("prescription_items")
+}
+
+// ─── Alerts ───────────────────────────────────────────────────────────────────
+
+model Alert {
+  id        String @id @default(uuid())
+  profileId String
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  type      AlertType
+  severity  AlertSeverity
+  message   String
+  metadata  Json?    // extra context (e.g. which vital, which medication)
+  isRead    Boolean  @default(false)
+  readAt    DateTime?
+
+  // Link to the source entity
+  sourceType String? // "VitalLog" | "Medication" | "Consultation"
+  sourceId   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([profileId, isRead])
+  @@index([profileId, severity])
+  @@index([createdAt])
+  @@map("alerts")
+}
