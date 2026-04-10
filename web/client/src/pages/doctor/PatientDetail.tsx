@@ -10,7 +10,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import {
-  Activity, AlertTriangle, Brain, RefreshCw, Stethoscope, FlaskConical, ChevronDown, ChevronUp,
+  Activity, AlertTriangle, Brain, RefreshCw, Stethoscope, FlaskConical, ChevronDown, ChevronUp, Calendar,
 } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
@@ -23,7 +23,7 @@ import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Skeleton } from "../../components/ui/skeleton";
 import api from "../../lib/api";
-import { Profile, VitalLog, VitalsAnalysis, AlertSeverity } from "../../types";
+import { Profile, VitalLog, VitalsAnalysis, AlertSeverity, Consultation } from "../../types";
 import {
   CONDITION_LABELS, VITAL_RANGES, fullName, formatDate, isVitalOutOfRange,
   SEVERITY_BADGE, computeRiskTier, RISK_TIER_STYLES,
@@ -296,18 +296,13 @@ export default function PatientDetailPage() {
     enabled: !!id,
   });
 
-  // These queries are placeholders for doctor-accessible patient data endpoints
-  // to be implemented as the API expands
-  useQuery({
-    queryKey: ["patient-meds", id],
-    queryFn: () => Promise.resolve([]),
-    enabled: false,
-  });
-
-  useQuery({
+  const { data: consultations } = useQuery({
     queryKey: ["patient-consults", id],
-    queryFn: () => Promise.resolve([]),
-    enabled: false,
+    queryFn: () =>
+      api
+        .get<Consultation[]>(`/consultations/doctor?patientId=${id}`)
+        .then((r) => r.data),
+    enabled: !!id,
   });
 
   const vitals = vitalsData?.data ?? [];
@@ -380,7 +375,7 @@ export default function PatientDetailPage() {
         </div>
 
         <Button
-          onClick={() => navigate(`/doctor/patients/${id}/consult/new`)}
+          onClick={() => navigate("/doctor/schedule")}
           className="flex items-center gap-2"
         >
           <Stethoscope className="w-4 h-4" />
@@ -500,6 +495,52 @@ export default function PatientDetailPage() {
               </div>
             )}
           </div>
+
+          {/* Consultations */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Calendar className="w-4 h-4 text-brand-600" />
+                Consultations
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {!consultations || consultations.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-4">No consultations on record</p>
+              ) : (
+                <div className="space-y-2">
+                  {[...consultations]
+                    .sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime())
+                    .slice(0, 10)
+                    .map((c) => (
+                      <div key={c.id} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-slate-800">
+                            {format(new Date(c.scheduledAt), "dd MMM yyyy, h:mm a")}
+                          </p>
+                          <p className="text-[10px] text-slate-500 truncate">
+                            {c.chiefComplaint ?? "General"} · {c.visitType ?? "in-person"}
+                          </p>
+                        </div>
+                        <Badge
+                          className={
+                            c.status === "COMPLETED"
+                              ? "bg-green-100 text-green-700"
+                              : c.status === "SCHEDULED"
+                              ? "bg-blue-100 text-blue-700"
+                              : c.status === "IN_PROGRESS"
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-slate-100 text-slate-500"
+                          }
+                        >
+                          {c.status.replace("_", " ")}
+                        </Badge>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Unread alerts for this patient */}
           {(profile.alerts?.length ?? 0) > 0 && (

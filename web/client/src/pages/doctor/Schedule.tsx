@@ -271,7 +271,10 @@ export default function SchedulePage() {
           patients={patients}
           selectedDate={selectedDate}
           onClose={() => setShowNewForm(false)}
-          onSuccess={() => queryClient.invalidateQueries({ queryKey: ["doctor-schedule"] })}
+          onSuccess={() => {
+        queryClient.invalidateQueries({ queryKey: ["doctor-schedule"] });
+        queryClient.invalidateQueries({ queryKey: ["doctor-upcoming-consults"] });
+      }}
         />
       )}
       {showNewForm && patients?.length === 0 && (

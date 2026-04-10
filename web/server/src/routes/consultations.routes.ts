@@ -8,6 +8,7 @@ import { z } from "zod";
 import { authenticateToken, requireRole } from "../middleware/auth.middleware";
 import { prisma } from "../lib/prisma";
 import { AppError } from "../middleware/error.middleware";
+import { sendMail } from "../lib/mailer";
 import { ConsultStatus } from "@prisma/client";
 
 const router = Router();
@@ -96,7 +97,7 @@ router.get(
       const profileId = req.user!.profileId;
       if (!profileId) throw new AppError(400, "NO_PROFILE", "Profile not found");
 
-      const { status, date } = req.query;
+      const { status, date, patientId, upcoming } = req.query;
 
       // Default to today's consultations if date not specified
       const targetDate = date ? new Date(date as string) : new Date();
@@ -105,13 +106,24 @@ router.get(
       const dayEnd = new Date(targetDate);
       dayEnd.setHours(23, 59, 59, 999);
 
+      // Build date filter:
+      // - upcoming=true  → all future consultations (no upper bound)
+      // - patientId set  → no date filter (return all for that patient)
+      // - status set     → no date filter (original behaviour)
+      // - default        → today only
+      let scheduledAtFilter: object | undefined;
+      if (upcoming === "true") {
+        scheduledAtFilter = { scheduledAt: { gte: new Date() } };
+      } else if (!status && !patientId) {
+        scheduledAtFilter = { scheduledAt: { gte: dayStart, lte: dayEnd } };
+      }
+
       const consultations = await prisma.consultation.findMany({
         where: {
           doctorId: profileId,
+          ...(patientId ? { patientId: patientId as string } : {}),
           ...(status ? { status: status as ConsultStatus } : {}),
-          ...(!status
-            ? { scheduledAt: { gte: dayStart, lte: dayEnd } }
-            : {}),
+          ...scheduledAtFilter,
         },
         orderBy: { scheduledAt: "asc" },
         include: {
@@ -163,6 +175,36 @@ router.post(
           doctor: { select: { firstName: true, lastName: true } },
         },
       });
+
+      // Fire-and-forget confirmation email to the doctor
+      const scheduledStr = new Date(input.scheduledAt).toLocaleString("en-IN", {
+        dateStyle: "full",
+        timeStyle: "short",
+        timeZone: "Asia/Kolkata",
+      });
+
+      sendMail({
+        to: req.user!.email,
+        subject: `Consultation Scheduled — ${consultation.patient.firstName} ${consultation.patient.lastName}`,
+        html: `
+          <div style="font-family:Inter,sans-serif;max-width:600px;margin:0 auto;">
+            <div style="background:#0F6E56;padding:20px;border-radius:8px 8px 0 0;">
+              <h2 style="color:white;margin:0;">Arogya — Consultation Scheduled</h2>
+            </div>
+            <div style="padding:24px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;">
+              <p style="margin:0 0 8px;">A new consultation has been scheduled.</p>
+              <table style="font-size:14px;border-collapse:collapse;width:100%;">
+                <tr><td style="padding:6px 0;color:#64748b;width:140px;">Patient</td><td style="padding:6px 0;font-weight:600;">${consultation.patient.firstName} ${consultation.patient.lastName}</td></tr>
+                <tr><td style="padding:6px 0;color:#64748b;">Date &amp; Time</td><td style="padding:6px 0;">${scheduledStr}</td></tr>
+                <tr><td style="padding:6px 0;color:#64748b;">Visit Type</td><td style="padding:6px 0;">${input.visitType}</td></tr>
+                ${input.chiefComplaint ? `<tr><td style="padding:6px 0;color:#64748b;">Chief Complaint</td><td style="padding:6px 0;">${input.chiefComplaint}</td></tr>` : ""}
+              </table>
+              <p style="color:#64748b;font-size:13px;margin-top:20px;">
+                Log in to the Arogya portal to manage this consultation.
+              </p>
+            </div>
+          </div>`,
+      }).catch((err) => console.error("[mailer] Consultation email failed:", err));
 
       res.status(201).json({ message: "Consultation scheduled", consultation });
     } catch (err) {

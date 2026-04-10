@@ -6,13 +6,14 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Users, AlertTriangle, ChevronRight } from "lucide-react";
+import { format } from "date-fns";
+import { Search, Users, AlertTriangle, ChevronRight, Calendar } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Badge } from "../../components/ui/badge";
 import { Skeleton } from "../../components/ui/skeleton";
 import api from "../../lib/api";
-import { Profile, Alert } from "../../types";
+import { Profile, Alert, Consultation } from "../../types";
 import { computeRiskTier, RISK_TIER_STYLES, CONDITION_LABELS, fullName } from "../../lib/utils";
 import type { RiskTier } from "../../types";
 
@@ -24,7 +25,13 @@ interface PatientWithAlerts extends Profile {
 
 // ─── Patient card ─────────────────────────────────────────────────────────────
 
-function PatientRow({ patient }: { patient: PatientWithAlerts }) {
+function PatientRow({
+  patient,
+  nextConsult,
+}: {
+  patient: PatientWithAlerts;
+  nextConsult?: Consultation;
+}) {
   const navigate = useNavigate();
   const tier = computeRiskTier(patient.alerts);
   const style = RISK_TIER_STYLES[tier];
@@ -67,6 +74,12 @@ function PatientRow({ patient }: { patient: PatientWithAlerts }) {
             </span>
           ))}
         </div>
+        {nextConsult && (
+          <div className="flex items-center gap-1 mt-1 text-[10px] text-brand-700">
+            <Calendar className="w-3 h-3" />
+            Next consult: {format(new Date(nextConsult.scheduledAt), "dd MMM, h:mm a")}
+          </div>
+        )}
       </div>
 
       {/* Alerts */}
@@ -98,6 +111,24 @@ export default function DoctorPatientsPage() {
     queryKey: ["doctor-patients"],
     queryFn: () => api.get<PatientWithAlerts[]>("/profile/doctor/patients").then((r) => r.data),
   });
+
+  const { data: upcomingConsults } = useQuery({
+    queryKey: ["doctor-upcoming-consults"],
+    queryFn: () =>
+      api.get<Consultation[]>("/consultations/doctor?upcoming=true").then((r) => r.data),
+  });
+
+  // Map: patientId → nearest upcoming consultation
+  const nextConsultByPatient = useMemo(() => {
+    const map = new Map<string, Consultation>();
+    (upcomingConsults ?? [])
+      .filter((c) => c.status === "SCHEDULED")
+      .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime())
+      .forEach((c) => {
+        if (!map.has(c.patientId)) map.set(c.patientId, c);
+      });
+    return map;
+  }, [upcomingConsults]);
 
   const filtered = useMemo(() => {
     let list = patients ?? [];
@@ -202,7 +233,7 @@ export default function DoctorPatientsPage() {
       {!isLoading && filtered.length > 0 && (
         <div className="space-y-2">
           {filtered.map((p) => (
-            <PatientRow key={p.id} patient={p} />
+            <PatientRow key={p.id} patient={p} nextConsult={nextConsultByPatient.get(p.id)} />
           ))}
         </div>
       )}

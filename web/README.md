@@ -6,13 +6,13 @@ A production-grade multi-role web platform for continuous chronic disease manage
 - **Frontend**: React 18, TypeScript, Vite, Zustand, TanStack Query v5, Recharts, Tailwind CSS
 - **Backend**: Node.js, Express, TypeScript, Prisma ORM, PostgreSQL
 - **Auth**: JWT with refresh token rotation, RBAC (PATIENT / DOCTOR / ADMIN)
-- **AI**: Anthropic Claude API (clinical decision support)
+- **AI**: Google Gemini API (clinical decision support)
 - **Offline**: IndexedDB via `idb` for offline vitals sync
 
 ## Prerequisites
 - Node.js 18+
 - PostgreSQL 14+ running locally
-- An Anthropic API key (optional — AI features degrade gracefully without it)
+- A Google Gemini API key (optional — AI features degrade gracefully without it)
 
 ## Setup
 
@@ -112,6 +112,7 @@ The batch endpoint (`POST /api/vitals/batch`) handles deduplication via `localId
 
 ## AI Features
 
-All AI features require `ANTHROPIC_API_KEY` in `.env`. Without it, AI endpoints return 503.
-AI-generated content (SOAP drafts, analysis) is always marked as draft — doctors must review
-and confirm before saving to patient records.
+All AI features require `GEMINI_API_KEY` in `.env`. Without it, AI endpoints return 503.
+Get a free key at [aistudio.google.com](https://aistudio.google.com). The model used is
+`gemini-2.5-flash`. AI-generated content (SOAP drafts, analysis) is always marked as draft —
+doctors must review and confirm before saving to patient records.

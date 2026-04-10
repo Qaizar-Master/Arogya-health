@@ -1,13 +1,14 @@
 /**
  * Admin — Users page
- * Paginated user list with search, role filter, role change, and activate/deactivate.
+ * Paginated user list with search, role filter, role change, activate/deactivate,
+ * and doctor-patient assignment.
  */
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { Search, Users, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, Users, ChevronLeft, ChevronRight, UserPlus, X } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -46,12 +47,95 @@ const ROLE_BADGE: Record<Role, string> = {
   ADMIN: "bg-slate-100 text-slate-800",
 };
 
+// ─── Assign Doctor Panel ──────────────────────────────────────────────────────
+
+function AssignDoctorPanel({
+  patient,
+  onClose,
+}: {
+  patient: UserRow;
+  onClose: () => void;
+}) {
+  const [selectedDoctorProfileId, setSelectedDoctorProfileId] = useState("");
+  const queryClient = useQueryClient();
+
+  const { data: doctorsData, isLoading: doctorsLoading } = useQuery({
+    queryKey: ["admin-doctors"],
+    queryFn: () =>
+      api
+        .get<UsersResponse>("/admin/users", { params: { role: "DOCTOR", limit: 100 } })
+        .then((r) => r.data),
+  });
+
+  const doctors = doctorsData?.users ?? [];
+
+  const assignMutation = useMutation({
+    mutationFn: () =>
+      api.post("/admin/link-doctor-patient", {
+        doctorProfileId: selectedDoctorProfileId,
+        patientProfileId: patient.profile!.id,
+      }),
+    onSuccess: () => {
+      toast.success(`Doctor assigned to ${patient.profile?.firstName ?? "patient"}`);
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      onClose();
+    },
+    onError: () => toast.error("Failed to assign doctor"),
+  });
+
+  return (
+    <tr>
+      <td colSpan={6} className="px-4 pb-4 pt-0">
+        <div className="bg-brand-50 border border-brand-200 rounded-lg p-4 flex items-end gap-3">
+          <div className="flex-1 space-y-1">
+            <p className="text-xs font-semibold text-brand-800">
+              Assign a doctor to{" "}
+              {patient.profile?.firstName} {patient.profile?.lastName}
+            </p>
+            {doctorsLoading ? (
+              <Skeleton className="h-9 w-full" />
+            ) : doctors.length === 0 ? (
+              <p className="text-xs text-slate-500">No doctors registered yet.</p>
+            ) : (
+              <select
+                value={selectedDoctorProfileId}
+                onChange={(e) => setSelectedDoctorProfileId(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-white px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="">— Select a doctor —</option>
+                {doctors.map((d) => (
+                  <option key={d.profile?.id} value={d.profile?.id ?? ""}>
+                    {d.profile?.firstName} {d.profile?.lastName}
+                    {d.profile?.speciality ? ` · ${d.profile.speciality}` : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <Button
+            size="sm"
+            disabled={!selectedDoctorProfileId || assignMutation.isPending}
+            loading={assignMutation.isPending}
+            onClick={() => assignMutation.mutate()}
+          >
+            Assign
+          </Button>
+          <Button size="sm" variant="outline" onClick={onClose}>
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function AdminUsersPage() {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<Role | "">("");
   const [page, setPage] = useState(1);
+  const [assigningPatientId, setAssigningPatientId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const LIMIT = 20;
@@ -164,70 +248,96 @@ export default function AdminUsersPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {users.map((user) => (
-                    <tr key={user.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3">
-                        <div>
-                          <p className="font-medium text-slate-900">
-                            {user.profile?.firstName || user.profile?.lastName
-                              ? `${user.profile.firstName ?? ""} ${user.profile.lastName ?? ""}`.trim()
-                              : "—"}
-                          </p>
-                          <p className="text-xs text-slate-500">{user.email}</p>
-                          {user.profile?.speciality && (
-                            <p className="text-xs text-slate-400">{user.profile.speciality}</p>
-                          )}
-                        </div>
-                      </td>
+                    <>
+                      <tr key={user.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-4 py-3">
+                          <div>
+                            <p className="font-medium text-slate-900">
+                              {user.profile?.firstName || user.profile?.lastName
+                                ? `${user.profile.firstName ?? ""} ${user.profile.lastName ?? ""}`.trim()
+                                : "—"}
+                            </p>
+                            <p className="text-xs text-slate-500">{user.email}</p>
+                            {user.profile?.speciality && (
+                              <p className="text-xs text-slate-400">{user.profile.speciality}</p>
+                            )}
+                          </div>
+                        </td>
 
-                      <td className="px-4 py-3">
-                        <select
-                          value={user.role}
-                          onChange={(e) =>
-                            updateMutation.mutate({
-                              id: user.id,
-                              data: { role: e.target.value as Role },
-                            })
-                          }
-                          className={`text-xs font-semibold px-2 py-1 rounded-full border-0 cursor-pointer ${ROLE_BADGE[user.role]}`}
-                        >
-                          <option value="PATIENT">PATIENT</option>
-                          <option value="DOCTOR">DOCTOR</option>
-                          <option value="ADMIN">ADMIN</option>
-                        </select>
-                      </td>
+                        <td className="px-4 py-3">
+                          <select
+                            value={user.role}
+                            onChange={(e) =>
+                              updateMutation.mutate({
+                                id: user.id,
+                                data: { role: e.target.value as Role },
+                              })
+                            }
+                            className={`text-xs font-semibold px-2 py-1 rounded-full border-0 cursor-pointer ${ROLE_BADGE[user.role]}`}
+                          >
+                            <option value="PATIENT">PATIENT</option>
+                            <option value="DOCTOR">DOCTOR</option>
+                            <option value="ADMIN">ADMIN</option>
+                          </select>
+                        </td>
 
-                      <td className="px-4 py-3 hidden md:table-cell text-xs text-slate-500">
-                        {user.lastLoginAt
-                          ? format(new Date(user.lastLoginAt), "dd MMM yyyy")
-                          : "Never"}
-                      </td>
+                        <td className="px-4 py-3 hidden md:table-cell text-xs text-slate-500">
+                          {user.lastLoginAt
+                            ? format(new Date(user.lastLoginAt), "dd MMM yyyy")
+                            : "Never"}
+                        </td>
 
-                      <td className="px-4 py-3 hidden lg:table-cell text-xs text-slate-500">
-                        {format(new Date(user.createdAt), "dd MMM yyyy")}
-                      </td>
+                        <td className="px-4 py-3 hidden lg:table-cell text-xs text-slate-500">
+                          {format(new Date(user.createdAt), "dd MMM yyyy")}
+                        </td>
 
-                      <td className="px-4 py-3">
-                        <Badge variant={user.isActive ? "success" : "secondary"}>
-                          {user.isActive ? "Active" : "Inactive"}
-                        </Badge>
-                      </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={user.isActive ? "success" : "secondary"}>
+                            {user.isActive ? "Active" : "Inactive"}
+                          </Badge>
+                        </td>
 
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() =>
-                            updateMutation.mutate({
-                              id: user.id,
-                              data: { isActive: !user.isActive },
-                            })
-                          }
-                          className={`text-xs hover:underline ${
-                            user.isActive ? "text-red-600" : "text-green-600"
-                          }`}
-                        >
-                          {user.isActive ? "Deactivate" : "Activate"}
-                        </button>
-                      </td>
-                    </tr>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-3">
+                            {user.role === "PATIENT" && user.profile?.id && (
+                              <button
+                                onClick={() =>
+                                  setAssigningPatientId(
+                                    assigningPatientId === user.id ? null : user.id
+                                  )
+                                }
+                                className="text-xs text-brand-600 hover:underline flex items-center gap-1"
+                                title="Assign a doctor to this patient"
+                              >
+                                <UserPlus className="w-3.5 h-3.5" />
+                                Assign Doctor
+                              </button>
+                            )}
+                            <button
+                              onClick={() =>
+                                updateMutation.mutate({
+                                  id: user.id,
+                                  data: { isActive: !user.isActive },
+                                })
+                              }
+                              className={`text-xs hover:underline ${
+                                user.isActive ? "text-red-600" : "text-green-600"
+                              }`}
+                            >
+                              {user.isActive ? "Deactivate" : "Activate"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {assigningPatientId === user.id && user.profile?.id && (
+                        <AssignDoctorPanel
+                          key={`assign-${user.id}`}
+                          patient={user}
+                          onClose={() => setAssigningPatientId(null)}
+                        />
+                      )}
+                    </>
                   ))}
                 </tbody>
               </table>

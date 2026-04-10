@@ -114,6 +114,7 @@ export default function DoctorDashboard() {
     if (!patientMap.has(alert.profileId)) {
       patientMap.set(alert.profileId, {
         ...(alert.profile as Profile),
+        id: alert.profileId, // profileId is the correct profile UUID
         alerts: [],
         conditions: [],
         medications: [],

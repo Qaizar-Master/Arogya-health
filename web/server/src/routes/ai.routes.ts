@@ -12,7 +12,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { authenticateToken, requireRole } from "../middleware/auth.middleware";
 import { aiLimiter } from "../middleware/rateLimit.middleware";
-import { anthropic, AI_MODEL, MAX_TOKENS } from "../lib/ai.client";
+import { genAI, AI_MODEL, MAX_TOKENS } from "../lib/ai.client";
 import { AppError } from "../middleware/error.middleware";
 
 const router = Router();
@@ -20,6 +20,49 @@ const router = Router();
 // Authentication + rate limiting on all AI routes
 router.use(authenticateToken);
 router.use(aiLimiter);
+
+// ─── Helper: call Gemini and return text ──────────────────────────────────────
+
+async function geminiGenerate(prompt: string, maxTokens = MAX_TOKENS): Promise<string> {
+  const model = genAI.getGenerativeModel({
+    model: AI_MODEL,
+    generationConfig: { maxOutputTokens: maxTokens },
+  });
+
+  // Retry up to 3 times on 429 rate-limit, honouring retryDelay when provided
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const result = await model.generateContent(prompt);
+      return result.response.text();
+    } catch (err: any) {
+      if (err?.status !== 429 || attempt === 3) throw err;
+
+      // Parse retryDelay from error details (e.g. "49s") if available
+      const retryInfo = err?.errorDetails?.find(
+        (d: any) => d["@type"] === "type.googleapis.com/google.rpc.RetryInfo"
+      );
+      const delaySeconds = retryInfo?.retryDelay
+        ? parseInt(retryInfo.retryDelay) + 2
+        : attempt * 15;
+
+      console.warn(`[ai] Rate limited — retrying in ${delaySeconds}s (attempt ${attempt}/3)`);
+      await new Promise((res) => setTimeout(res, delaySeconds * 1000));
+    }
+  }
+  throw new Error("Unreachable");
+}
+
+// ─── Helper: parse JSON from model output (handles markdown code blocks) ──────
+
+function parseModelJSON(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) return JSON.parse(jsonMatch[1]);
+    throw new Error("Model did not return valid JSON");
+  }
+}
 
 // ─── POST /api/ai/analyze-vitals ─────────────────────────────────────────────
 
@@ -37,7 +80,7 @@ router.post(
     try {
       const input = analyzeVitalsSchema.parse(req.body);
 
-      if (!process.env.ANTHROPIC_API_KEY) {
+      if (!process.env.GEMINI_API_KEY) {
         throw new AppError(503, "AI_UNAVAILABLE", "AI service is not configured");
       }
 
@@ -74,21 +117,13 @@ Respond ONLY with valid JSON in this exact format (no markdown, no explanation o
   "urgency_level": "low|medium|high|critical"
 }`;
 
-      const response = await anthropic.messages.create({
-        model: AI_MODEL,
-        max_tokens: MAX_TOKENS,
-        messages: [{ role: "user", content: prompt }],
-      });
-
-      const raw = response.content[0].type === "text" ? response.content[0].text : "";
+      const raw = await geminiGenerate(prompt);
 
       let parsed;
       try {
-        parsed = JSON.parse(raw);
+        parsed = parseModelJSON(raw);
       } catch {
-        // If model returned markdown-wrapped JSON, strip it
-        const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-        parsed = jsonMatch ? JSON.parse(jsonMatch[1]) : { raw };
+        parsed = { raw };
       }
 
       res.json({ analysis: parsed });
@@ -118,7 +153,7 @@ router.post(
     try {
       const input = soapDraftSchema.parse(req.body);
 
-      if (!process.env.ANTHROPIC_API_KEY) {
+      if (!process.env.GEMINI_API_KEY) {
         throw new AppError(503, "AI_UNAVAILABLE", "AI service is not configured");
       }
 
@@ -145,20 +180,13 @@ Respond ONLY with valid JSON (no markdown wrapper):
   "plan": "Treatment plan including medication changes, investigations, lifestyle advice, follow-up"
 }`;
 
-      const response = await anthropic.messages.create({
-        model: AI_MODEL,
-        max_tokens: MAX_TOKENS,
-        messages: [{ role: "user", content: prompt }],
-      });
-
-      const raw = response.content[0].type === "text" ? response.content[0].text : "";
+      const raw = await geminiGenerate(prompt);
 
       let parsed;
       try {
-        parsed = JSON.parse(raw);
+        parsed = parseModelJSON(raw);
       } catch {
-        const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-        parsed = jsonMatch ? JSON.parse(jsonMatch[1]) : { plan: raw };
+        parsed = { plan: raw };
       }
 
       res.json({ draft: parsed });
@@ -184,7 +212,7 @@ router.post(
     try {
       const input = drugInteractionSchema.parse(req.body);
 
-      if (!process.env.ANTHROPIC_API_KEY) {
+      if (!process.env.GEMINI_API_KEY) {
         throw new AppError(503, "AI_UNAVAILABLE", "AI service is not configured");
       }
 
@@ -216,20 +244,13 @@ Respond ONLY with valid JSON (no markdown):
   "summary": "One-line summary for the prescribing doctor"
 }`;
 
-      const response = await anthropic.messages.create({
-        model: AI_MODEL,
-        max_tokens: 1024,
-        messages: [{ role: "user", content: prompt }],
-      });
-
-      const raw = response.content[0].type === "text" ? response.content[0].text : "";
+      const raw = await geminiGenerate(prompt, 1024);
 
       let parsed;
       try {
-        parsed = JSON.parse(raw);
+        parsed = parseModelJSON(raw);
       } catch {
-        const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-        parsed = jsonMatch ? JSON.parse(jsonMatch[1]) : { hasInteraction: false, summary: raw };
+        parsed = { hasInteraction: false, summary: raw };
       }
 
       res.json(parsed);

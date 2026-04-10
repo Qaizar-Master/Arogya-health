@@ -5,6 +5,7 @@
 
 import { prisma } from "../lib/prisma";
 import { AppError } from "../middleware/error.middleware";
+import { sendMail } from "../lib/mailer";
 import { VitalSource } from "@prisma/client";
 
 // ─── Reference ranges for anomaly detection ───────────────────────────────────
@@ -211,19 +212,96 @@ export class VitalsService {
     check("hba1c", input.hba1c, "%", "HbA1c");
     check("creatinine", input.creatinine, " mg/dL", "Creatinine");
 
-    if (alerts.length > 0) {
-      await prisma.alert.createMany({
-        data: alerts.map((a) => ({
-          profileId,
-          type: a.type,
-          severity: a.severity,
-          message: a.message,
-          sourceType: "VitalLog",
-          sourceId: vitalId,
-          metadata: { vitalId },
-        })),
-      });
-    }
+    if (alerts.length === 0) return;
+
+    await prisma.alert.createMany({
+      data: alerts.map((a) => ({
+        profileId,
+        type: a.type,
+        severity: a.severity,
+        message: a.message,
+        sourceType: "VitalLog",
+        sourceId: vitalId,
+        metadata: { vitalId },
+      })),
+    });
+
+    // Only email for HIGH or CRITICAL alerts
+    const urgentAlerts = alerts.filter(
+      (a) => a.severity === "HIGH" || a.severity === "CRITICAL"
+    );
+    if (urgentAlerts.length === 0) return;
+
+    // Get patient name + assigned doctors' emails
+    const patient = await prisma.profile.findUnique({
+      where: { id: profileId },
+      select: {
+        firstName: true,
+        lastName: true,
+        assignedDoctors: {
+          select: {
+            doctor: {
+              select: { user: { select: { email: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    if (!patient) return;
+
+    const patientName = `${patient.firstName} ${patient.lastName}`;
+    const doctorEmails = patient.assignedDoctors
+      .map((d) => d.doctor.user?.email)
+      .filter(Boolean) as string[];
+
+    if (doctorEmails.length === 0) return;
+
+    const overallSeverity = urgentAlerts.some((a) => a.severity === "CRITICAL")
+      ? "CRITICAL"
+      : "HIGH";
+
+    const alertRows = urgentAlerts
+      .map(
+        (a) =>
+          `<tr>
+            <td style="padding:6px 12px;border-bottom:1px solid #f1f5f9;">${a.message}</td>
+            <td style="padding:6px 12px;border-bottom:1px solid #f1f5f9;color:${a.severity === "CRITICAL" ? "#dc2626" : "#ea580c"};font-weight:600;">${a.severity}</td>
+          </tr>`
+      )
+      .join("");
+
+    const html = `
+      <div style="font-family:Inter,sans-serif;max-width:600px;margin:0 auto;">
+        <div style="background:#0F6E56;padding:20px;border-radius:8px 8px 0 0;">
+          <h2 style="color:white;margin:0;">Arogya — Vital Alert</h2>
+        </div>
+        <div style="padding:24px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;">
+          <p style="margin:0 0 16px;">Abnormal vital readings have been recorded for <strong>${patientName}</strong>.</p>
+          <table style="width:100%;border-collapse:collapse;font-size:14px;">
+            <thead>
+              <tr style="background:#f8fafc;">
+                <th style="padding:8px 12px;text-align:left;color:#475569;">Anomaly</th>
+                <th style="padding:8px 12px;text-align:left;color:#475569;">Severity</th>
+              </tr>
+            </thead>
+            <tbody>${alertRows}</tbody>
+          </table>
+          <p style="color:#64748b;font-size:13px;margin-top:20px;">
+            Log in to the Arogya portal to review this patient's vitals and take action.
+          </p>
+        </div>
+      </div>`;
+
+    await Promise.all(
+      doctorEmails.map((email) =>
+        sendMail({
+          to: email,
+          subject: `[Arogya ${overallSeverity}] Vital anomaly — ${patientName}`,
+          html,
+        }).catch((err) => console.error("[mailer] Alert email failed:", err))
+      )
+    );
   }
 }
 
