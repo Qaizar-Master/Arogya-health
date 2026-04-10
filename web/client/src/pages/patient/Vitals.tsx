@@ -9,7 +9,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { v4 as uuidv4 } from "uuid";
+
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, ReferenceArea,
@@ -179,7 +179,7 @@ export default function VitalsPage() {
       });
       if (formData.notes) payload.notes = formData.notes;
 
-      const localId = uuidv4();
+      const localId = crypto.randomUUID();
       payload.localId = localId;
       payload.recordedAt = new Date().toISOString();
 

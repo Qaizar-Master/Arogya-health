@@ -7,6 +7,7 @@ import { z } from "zod";
 import { authenticateToken, requireRole } from "../middleware/auth.middleware";
 import { profileService } from "../services/profile.service";
 import { AppError } from "../middleware/error.middleware";
+import { prisma } from "../lib/prisma";
 
 const router = Router();
 
@@ -49,6 +50,40 @@ router.put("/me", async (req: Request, res: Response, next: NextFunction) => {
     next(err);
   }
 });
+
+// ─── GET /api/profile/doctor/patients — all patients assigned to this doctor ──
+
+router.get(
+  "/doctor/patients",
+  requireRole("DOCTOR"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const doctorProfileId = req.user!.profileId;
+      if (!doctorProfileId) throw new AppError(400, "NO_PROFILE", "Doctor profile not found");
+
+      const assignments = await prisma.doctorPatient.findMany({
+        where: { doctorId: doctorProfileId },
+        include: {
+          patient: {
+            include: {
+              conditions: { where: { isActive: true } },
+              alerts: {
+                where: { isRead: false },
+                orderBy: { severity: "asc" },
+                take: 10,
+              },
+            },
+          },
+        },
+        orderBy: { assignedAt: "desc" },
+      });
+
+      res.json(assignments.map((a) => a.patient));
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 // ─── GET /api/profile/:id — doctor or admin only ──────────────────────────────
 

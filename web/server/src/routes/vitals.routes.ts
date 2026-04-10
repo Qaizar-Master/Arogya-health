@@ -7,6 +7,7 @@ import { z } from "zod";
 import { authenticateToken, requireRole } from "../middleware/auth.middleware";
 import { vitalsService } from "../services/vitals.service";
 import { AppError } from "../middleware/error.middleware";
+import { prisma } from "../lib/prisma";
 
 const router = Router();
 router.use(authenticateToken);
@@ -128,6 +129,27 @@ router.delete(
 
       await vitalsService.deleteVital(req.params.id, profileId);
       res.json({ message: "Vital record deleted" });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── POST /api/vitals/patient/:patientId — doctor logs vitals for a patient ───
+
+router.post(
+  "/patient/:patientId",
+  requireRole("DOCTOR", "ADMIN"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { patientId } = req.params;
+
+      const profile = await prisma.profile.findUnique({ where: { id: patientId } });
+      if (!profile) throw new AppError(404, "NOT_FOUND", "Patient profile not found");
+
+      const input = vitalInputSchema.parse(req.body);
+      const vital = await vitalsService.logVital(patientId, input);
+      res.status(201).json({ message: "Vitals logged for patient", vital });
     } catch (err) {
       next(err);
     }

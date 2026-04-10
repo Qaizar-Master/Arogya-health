@@ -19,13 +19,22 @@ import SignupPage from "./pages/Signup";
 // Patient pages
 import PatientDashboard from "./pages/patient/Dashboard";
 import VitalsPage from "./pages/patient/Vitals";
+import MedicationsPage from "./pages/patient/Medications";
+import ConsultationsPage from "./pages/patient/Consultations";
+import PatientReportsPage from "./pages/patient/Reports";
+import ProfilePage from "./pages/patient/Profile";
 
 // Doctor pages
 import DoctorDashboard from "./pages/doctor/Dashboard";
 import PatientDetailPage from "./pages/doctor/PatientDetail";
+import DoctorPatientsPage from "./pages/doctor/Patients";
+import DoctorAlertsPage from "./pages/doctor/Alerts";
+import SchedulePage from "./pages/doctor/Schedule";
 
 // Admin pages
 import AdminDashboard from "./pages/admin/Dashboard";
+import AdminUsersPage from "./pages/admin/Users";
+import AdminReportsPage from "./pages/admin/Reports";
 
 // ─── React Query config ───────────────────────────────────────────────────────
 
@@ -56,11 +65,10 @@ export default function App() {
             <Route element={<PortalLayout />}>
               <Route path="/patient/dashboard" element={<PatientDashboard />} />
               <Route path="/patient/vitals" element={<VitalsPage />} />
-              {/* Placeholder routes — expandable */}
-              <Route path="/patient/medications" element={<PatientPlaceholder title="Medications" />} />
-              <Route path="/patient/consultations" element={<PatientPlaceholder title="Consultations" />} />
-              <Route path="/patient/reports" element={<PatientPlaceholder title="Reports" />} />
-              <Route path="/patient/profile" element={<PatientPlaceholder title="Profile" />} />
+              <Route path="/patient/medications" element={<MedicationsPage />} />
+              <Route path="/patient/consultations" element={<ConsultationsPage />} />
+              <Route path="/patient/reports" element={<PatientReportsPage />} />
+              <Route path="/patient/profile" element={<ProfilePage />} />
               <Route path="/patient/*" element={<Navigate to="/patient/dashboard" replace />} />
             </Route>
           </Route>
@@ -70,9 +78,9 @@ export default function App() {
             <Route element={<PortalLayout />}>
               <Route path="/doctor/dashboard" element={<DoctorDashboard />} />
               <Route path="/doctor/patients/:id" element={<PatientDetailPage />} />
-              <Route path="/doctor/patients" element={<DoctorPlaceholder title="All Patients" />} />
-              <Route path="/doctor/alerts" element={<DoctorPlaceholder title="Alerts Panel" />} />
-              <Route path="/doctor/schedule" element={<DoctorPlaceholder title="Schedule" />} />
+              <Route path="/doctor/patients" element={<DoctorPatientsPage />} />
+              <Route path="/doctor/alerts" element={<DoctorAlertsPage />} />
+              <Route path="/doctor/schedule" element={<SchedulePage />} />
               <Route path="/doctor/*" element={<Navigate to="/doctor/dashboard" replace />} />
             </Route>
           </Route>
@@ -81,8 +89,8 @@ export default function App() {
           <Route element={<ProtectedRoute allowedRoles={["ADMIN"]} />}>
             <Route element={<PortalLayout />}>
               <Route path="/admin/dashboard" element={<AdminDashboard />} />
-              <Route path="/admin/users" element={<AdminPlaceholder title="User Management" />} />
-              <Route path="/admin/reports" element={<AdminPlaceholder title="Reports" />} />
+              <Route path="/admin/users" element={<AdminUsersPage />} />
+              <Route path="/admin/reports" element={<AdminReportsPage />} />
               <Route path="/admin/*" element={<Navigate to="/admin/dashboard" replace />} />
             </Route>
           </Route>
@@ -108,37 +116,3 @@ export default function App() {
   );
 }
 
-// ─── Placeholder components (to be replaced page-by-page) ────────────────────
-
-function PatientPlaceholder({ title }: { title: string }) {
-  return (
-    <div className="flex items-center justify-center py-24">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">{title}</h1>
-        <p className="text-slate-500 text-sm">This page is being built.</p>
-      </div>
-    </div>
-  );
-}
-
-function DoctorPlaceholder({ title }: { title: string }) {
-  return (
-    <div className="flex items-center justify-center py-24">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">{title}</h1>
-        <p className="text-slate-500 text-sm">This page is being built.</p>
-      </div>
-    </div>
-  );
-}
-
-function AdminPlaceholder({ title }: { title: string }) {
-  return (
-    <div className="flex items-center justify-center py-24">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">{title}</h1>
-        <p className="text-slate-500 text-sm">This page is being built.</p>
-      </div>
-    </div>
-  );
-}

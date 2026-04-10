@@ -6,11 +6,11 @@
 
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import {
-  Activity, AlertTriangle, Brain, RefreshCw, Stethoscope,
+  Activity, AlertTriangle, Brain, RefreshCw, Stethoscope, FlaskConical, ChevronDown, ChevronUp,
 } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
@@ -19,6 +19,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
 import { Skeleton } from "../../components/ui/skeleton";
 import api from "../../lib/api";
 import { Profile, VitalLog, VitalsAnalysis, AlertSeverity } from "../../types";
@@ -26,6 +28,134 @@ import {
   CONDITION_LABELS, VITAL_RANGES, fullName, formatDate, isVitalOutOfRange,
   SEVERITY_BADGE, computeRiskTier, RISK_TIER_STYLES,
 } from "../../lib/utils";
+
+// ─── Log Test Results form ────────────────────────────────────────────────────
+
+const VITAL_FIELDS: Array<{ key: string; label: string; unit: string; step?: string }> = [
+  { key: "bloodGlucose", label: "Blood Glucose", unit: "mg/dL" },
+  { key: "systolicBP", label: "Systolic BP", unit: "mmHg" },
+  { key: "diastolicBP", label: "Diastolic BP", unit: "mmHg" },
+  { key: "heartRate", label: "Heart Rate", unit: "bpm" },
+  { key: "spo2", label: "SpO₂", unit: "%" },
+  { key: "temperature", label: "Temperature", unit: "°C", step: "0.1" },
+  { key: "weight", label: "Weight", unit: "kg", step: "0.1" },
+  { key: "hba1c", label: "HbA1c", unit: "%", step: "0.1" },
+  { key: "creatinine", label: "Creatinine", unit: "mg/dL", step: "0.01" },
+  { key: "egfr", label: "eGFR", unit: "mL/min", step: "0.1" },
+  { key: "cholesterol", label: "Cholesterol", unit: "mg/dL" },
+];
+
+function LogTestResultsForm({ patientId, onSaved }: { patientId: string; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [fields, setFields] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState("");
+  const [recordedAt, setRecordedAt] = useState(
+    new Date().toISOString().slice(0, 16)
+  );
+
+  const logMutation = useMutation({
+    mutationFn: () => {
+      const body: Record<string, unknown> = {
+        recordedAt: new Date(recordedAt).toISOString(),
+        notes: notes || undefined,
+        source: "MANUAL",
+      };
+      for (const [k, v] of Object.entries(fields)) {
+        if (v !== "") body[k] = parseFloat(v);
+      }
+      return api.post(`/vitals/patient/${patientId}`, body);
+    },
+    onSuccess: () => {
+      toast.success("Test results logged");
+      setFields({});
+      setNotes("");
+      setRecordedAt(new Date().toISOString().slice(0, 16));
+      setOpen(false);
+      onSaved();
+    },
+    onError: () => toast.error("Failed to log results"),
+  });
+
+  const hasAnyValue = Object.values(fields).some((v) => v !== "");
+
+  return (
+    <Card>
+      <button
+        className="w-full flex items-center justify-between p-4 text-left"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <div className="flex items-center gap-2">
+          <FlaskConical className="w-4 h-4 text-brand-600" />
+          <span className="text-sm font-semibold text-slate-900">Log Test Results / Vitals</span>
+        </div>
+        {open ? (
+          <ChevronUp className="w-4 h-4 text-slate-400" />
+        ) : (
+          <ChevronDown className="w-4 h-4 text-slate-400" />
+        )}
+      </button>
+
+      {open && (
+        <CardContent className="pt-0 space-y-4">
+          <div className="space-y-1">
+            <Label htmlFor="recordedAt">Date &amp; time of measurement</Label>
+            <Input
+              id="recordedAt"
+              type="datetime-local"
+              value={recordedAt}
+              onChange={(e) => setRecordedAt(e.target.value)}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {VITAL_FIELDS.map(({ key, label, unit, step }) => (
+              <div key={key} className="space-y-1">
+                <Label htmlFor={`vital-${key}`} className="text-xs">
+                  {label}
+                  <span className="ml-1 text-slate-400 font-normal">({unit})</span>
+                </Label>
+                <Input
+                  id={`vital-${key}`}
+                  type="number"
+                  step={step ?? "1"}
+                  min="0"
+                  placeholder="—"
+                  value={fields[key] ?? ""}
+                  onChange={(e) =>
+                    setFields((prev) => ({ ...prev, [key]: e.target.value }))
+                  }
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="vitalNotes">Clinical notes (optional)</Label>
+            <Input
+              id="vitalNotes"
+              placeholder="e.g. Fasting sample, post-dialysis, patient reported dizziness…"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+
+          <div className="flex gap-3">
+            <Button
+              onClick={() => logMutation.mutate()}
+              loading={logMutation.isPending}
+              disabled={!hasAnyValue}
+            >
+              Save results
+            </Button>
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
 
 // ─── AI Panel sidebar ────────────────────────────────────────────────────────
 
@@ -151,6 +281,7 @@ function AIPanelSidebar({
 export default function PatientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: profile, isLoading: profileLoading } = useQuery({
     queryKey: ["patient-profile", id],
@@ -260,6 +391,16 @@ export default function PatientDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Main content — 3 cols */}
         <div className="lg:col-span-3 space-y-6">
+          {/* Log test results */}
+          {id && (
+            <LogTestResultsForm
+              patientId={id}
+              onSaved={() =>
+                queryClient.invalidateQueries({ queryKey: ["patient-vitals", id] })
+              }
+            />
+          )}
+
           {/* Vitals charts */}
           <div>
             <h2 className="text-base font-semibold text-slate-900 mb-3 flex items-center gap-2">
