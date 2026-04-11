@@ -29,7 +29,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
-      GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
+      GoRoute(path: '/login', builder: (_, __) => const HomeScreen()),
       GoRoute(path: '/signup', builder: (_, __) => const SignupScreen()),
 
       // Shell route — bottom nav wraps these
