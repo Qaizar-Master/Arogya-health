@@ -12,7 +12,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { authenticateToken, requireRole } from "../middleware/auth.middleware";
 import { aiLimiter } from "../middleware/rateLimit.middleware";
-import { genAI, AI_MODEL, MAX_TOKENS } from "../lib/ai.client";
+import { groq, AI_MODEL, MAX_TOKENS } from "../lib/ai.client";
 import { AppError } from "../middleware/error.middleware";
 
 const router = Router();
@@ -23,33 +23,14 @@ router.use(aiLimiter);
 
 // ─── Helper: call Gemini and return text ──────────────────────────────────────
 
-async function geminiGenerate(prompt: string, maxTokens = MAX_TOKENS): Promise<string> {
-  const model = genAI.getGenerativeModel({
+async function aiGenerate(prompt: string, maxTokens = MAX_TOKENS): Promise<string> {
+  const res = await groq.chat.completions.create({
     model: AI_MODEL,
-    generationConfig: { maxOutputTokens: maxTokens },
+    messages: [{ role: "user", content: prompt }],
+    max_tokens: maxTokens,
+    temperature: 0.3,
   });
-
-  // Retry up to 3 times on 429 rate-limit, honouring retryDelay when provided
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const result = await model.generateContent(prompt);
-      return result.response.text();
-    } catch (err: any) {
-      if (err?.status !== 429 || attempt === 3) throw err;
-
-      // Parse retryDelay from error details (e.g. "49s") if available
-      const retryInfo = err?.errorDetails?.find(
-        (d: any) => d["@type"] === "type.googleapis.com/google.rpc.RetryInfo"
-      );
-      const delaySeconds = retryInfo?.retryDelay
-        ? parseInt(retryInfo.retryDelay) + 2
-        : attempt * 15;
-
-      console.warn(`[ai] Rate limited — retrying in ${delaySeconds}s (attempt ${attempt}/3)`);
-      await new Promise((res) => setTimeout(res, delaySeconds * 1000));
-    }
-  }
-  throw new Error("Unreachable");
+  return res.choices[0].message.content ?? "";
 }
 
 // ─── Helper: parse JSON from model output (handles markdown code blocks) ──────
@@ -80,44 +61,27 @@ router.post(
     try {
       const input = analyzeVitalsSchema.parse(req.body);
 
-      if (!process.env.GEMINI_API_KEY) {
+      if (!process.env.GROQ_API_KEY) {
         throw new AppError(503, "AI_UNAVAILABLE", "AI service is not configured");
       }
 
-      const prompt = `You are a clinical decision support AI integrated into Arogya, a chronic disease management platform used by doctors in India.
+      // Strip null fields and cap at 10 readings to minimise input tokens
+      const VITAL_FIELDS = ["recordedAt","bloodGlucose","systolicBP","diastolicBP","heartRate","spo2","weight","temperature","hba1c","creatinine","egfr","cholesterol"];
+      const trimmedVitals = input.vitals.slice(0, 10).map((v) =>
+        Object.fromEntries(VITAL_FIELDS.filter((k) => v[k] != null).map((k) => [k, v[k]]))
+      );
 
-Patient profile:
-- Conditions: ${input.conditions.join(", ")}
-- Age: ${input.patientAge ?? "unknown"}
-- Gender: ${input.patientGender ?? "unknown"}
+      const prompt = `Clinical AI for Arogya (India). Patient: ${input.conditions.join(", ")}, age ${input.patientAge ?? "?"}, ${input.patientGender ?? "?"}.
 
-Last 30 days of vitals (newest first):
-${JSON.stringify(input.vitals, null, 2)}
+Vitals (newest first, up to 10):
+${JSON.stringify(trimmedVitals)}
 
-Analyse the vitals above and identify:
-1. Out-of-range readings based on clinical reference ranges
-2. Worsening trends across the period
-3. Patterns specific to the patient's conditions (e.g. rising HbA1c for diabetes, creatinine trend for CKD)
-4. Any urgently concerning values
+Identify out-of-range values, worsening trends, and condition-specific concerns. Be concise.
 
-Respond ONLY with valid JSON in this exact format (no markdown, no explanation outside JSON):
-{
-  "anomalies": [
-    {
-      "field": "bloodGlucose",
-      "value": 280,
-      "unit": "mg/dL",
-      "normalRange": "70-140",
-      "severity": "high",
-      "note": "Significantly elevated — check for poor glycaemic control or illness"
-    }
-  ],
-  "trend_summary": "Brief narrative of the overall trend in 2-3 sentences",
-  "recommended_followup": "Specific actionable recommendation for the doctor",
-  "urgency_level": "low|medium|high|critical"
-}`;
+Reply ONLY with valid JSON:
+{"anomalies":[{"field":"","value":0,"unit":"","normalRange":"","severity":"low|medium|high|critical","note":""}],"trend_summary":"1-2 sentences","recommended_followup":"1 sentence","urgency_level":"low|medium|high|critical"}`;
 
-      const raw = await geminiGenerate(prompt);
+      const raw = await aiGenerate(prompt, 512);
 
       let parsed;
       try {
@@ -153,34 +117,27 @@ router.post(
     try {
       const input = soapDraftSchema.parse(req.body);
 
-      if (!process.env.GEMINI_API_KEY) {
+      if (!process.env.GROQ_API_KEY) {
         throw new AppError(503, "AI_UNAVAILABLE", "AI service is not configured");
       }
 
-      const prompt = `You are a clinical documentation AI assisting a doctor using the Arogya platform in India. Generate a structured SOAP note DRAFT for the doctor to review and edit — never for direct use without review.
+      const VITAL_FIELDS = ["recordedAt","bloodGlucose","systolicBP","diastolicBP","heartRate","spo2","weight","temperature","hba1c"];
+      const trimmedVitals = input.recentVitals.slice(0, 3).map((v) =>
+        Object.fromEntries(VITAL_FIELDS.filter((k) => v[k] != null).map((k) => [k, v[k]]))
+      );
 
-Patient:
-- Age: ${input.patientAge ?? "unknown"}, Gender: ${input.patientGender ?? "unknown"}
-- Chronic conditions: ${input.conditions.join(", ")}
-- Chief complaint: ${input.chiefComplaint}
+      const prompt = `SOAP note draft AI for Arogya (India). FOR DOCTOR REVIEW ONLY.
+Patient: age ${input.patientAge ?? "?"}, ${input.patientGender ?? "?"}, ${input.conditions.join(", ")}.
+Complaint: ${input.chiefComplaint}.
+Meds: ${input.medications.map((m) => `${m.name} ${m.dosage} ${m.frequency}`).join("; ")}.
+Vitals: ${JSON.stringify(trimmedVitals)}.
 
-Current medications:
-${input.medications.map((m) => `- ${m.name} ${m.dosage} ${m.frequency}`).join("\n")}
+Write a brief outpatient SOAP draft. Each field max 2 sentences.
 
-Recent vitals (last 5 readings):
-${JSON.stringify(input.recentVitals, null, 2)}
+Reply ONLY with valid JSON:
+{"subjective":"","objective":"","assessment":"","plan":""}`;
 
-Generate a concise clinical SOAP note draft. Use standard clinical language appropriate for an Indian outpatient setting.
-
-Respond ONLY with valid JSON (no markdown wrapper):
-{
-  "subjective": "Patient-reported symptoms and history from this visit",
-  "objective": "Relevant examination findings and vitals summary",
-  "assessment": "Clinical impression / working diagnosis",
-  "plan": "Treatment plan including medication changes, investigations, lifestyle advice, follow-up"
-}`;
-
-      const raw = await geminiGenerate(prompt);
+      const raw = await aiGenerate(prompt, 400);
 
       let parsed;
       try {
@@ -212,39 +169,18 @@ router.post(
     try {
       const input = drugInteractionSchema.parse(req.body);
 
-      if (!process.env.GEMINI_API_KEY) {
+      if (!process.env.GROQ_API_KEY) {
         throw new AppError(503, "AI_UNAVAILABLE", "AI service is not configured");
       }
 
-      const prompt = `You are a clinical pharmacology AI. Check for drug interactions between a new drug and an existing medication list.
+      const prompt = `Drug interaction checker. New drug: ${input.newDrug}. Current: ${input.existingMedications.map((m) => m.name + (m.dosage ? ` ${m.dosage}` : "")).join(", ")}.
 
-New drug being prescribed: ${input.newDrug}
+Only flag real, evidence-based interactions (not theoretical). Be brief.
 
-Current medications:
-${input.existingMedications.map((m) => `- ${m.name}${m.dosage ? ` ${m.dosage}` : ""}`).join("\n")}
+Reply ONLY with valid JSON:
+{"hasInteraction":false,"interactions":[{"drug1":"","drug2":"","severity":"mild|moderate|severe","mechanism":"1 sentence","clinicalEffect":"1 sentence","recommendation":"1 sentence"}],"overallSeverity":"none|mild|moderate|severe","summary":"1 sentence"}`;
 
-Identify any clinically significant drug-drug interactions. Consider: pharmacokinetic interactions (CYP450, protein binding), pharmacodynamic interactions (additive/antagonistic effects), and contraindications.
-
-IMPORTANT: Only flag real, evidence-based interactions. Do not flag minor or theoretical interactions.
-
-Respond ONLY with valid JSON (no markdown):
-{
-  "hasInteraction": true,
-  "interactions": [
-    {
-      "drug1": "Metformin",
-      "drug2": "Contrast dye",
-      "severity": "moderate",
-      "mechanism": "Brief pharmacological explanation",
-      "clinicalEffect": "What may happen clinically",
-      "recommendation": "What the doctor should do"
-    }
-  ],
-  "overallSeverity": "none|mild|moderate|severe",
-  "summary": "One-line summary for the prescribing doctor"
-}`;
-
-      const raw = await geminiGenerate(prompt, 1024);
+      const raw = await aiGenerate(prompt, 400);
 
       let parsed;
       try {

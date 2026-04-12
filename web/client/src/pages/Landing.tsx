@@ -12,7 +12,7 @@ import { Button } from "../components/ui/button";
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
-const FEATURES = [
+const FEATURES = [  
   {
     icon: Activity,
     title: "Longitudinal Vitals",
@@ -30,7 +30,7 @@ const FEATURES = [
   {
     icon: Brain,
     title: "AI Decision Support",
-    desc: "Claude-powered anomaly detection flags dangerous trends. SOAP note drafts and drug interaction checks in seconds.",
+    desc: "AI-powered anomaly detection flags dangerous trends. SOAP note drafts and drug interaction checks in seconds.",
     color: "text-violet-600",
     bg: "bg-violet-50",
   },
@@ -193,7 +193,7 @@ function DashboardMockup() {
           <div className="bg-violet-50 rounded-xl p-3 border border-violet-100 flex items-start gap-2">
             <Brain className="w-3.5 h-3.5 text-violet-600 shrink-0 mt-0.5" />
             <div>
-              <p className="text-[10px] font-semibold text-violet-800">Claude AI Insight</p>
+              <p className="text-[10px] font-semibold text-violet-800">AI Insight</p>
               <p className="text-[9px] text-violet-600 leading-relaxed mt-0.5">
                 Glucose trend +12% over 7 days. Recommend HbA1c check and medication review.
               </p>
@@ -259,9 +259,7 @@ export default function LandingPage() {
       <nav className="fixed top-0 inset-x-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200/60">
         <div className="max-w-6xl mx-auto px-6 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center shadow-sm">
-              <Stethoscope className="w-4 h-4 text-white" />
-            </div>
+            <img src="/arogya-icon.svg" alt="Arogya" className="w-8 h-8" />
             <span className="text-base font-bold text-slate-900 tracking-tight">Arogya</span>
             <span className="hidden sm:inline-block text-[10px] font-semibold bg-brand-100 text-brand-700 px-2 py-0.5 rounded-full ml-1">
               BETA
@@ -369,7 +367,7 @@ export default function LandingPage() {
               <div className="flex flex-wrap gap-4">
                 {[
                   { icon: Shield, label: "ABHA-ready" },
-                  { icon: Brain, label: "Claude AI" },
+                  { icon: Brain, label: "AI" },
                   { icon: Wifi, label: "Offline support" },
                 ].map(({ icon: Icon, label }) => (
                   <div key={label} className="flex items-center gap-1.5 text-slate-400 text-xs">
@@ -550,7 +548,7 @@ export default function LandingPage() {
             <div>
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-violet-700/50 bg-violet-900/30 text-violet-300 text-xs font-medium mb-8">
                 <Brain className="w-3.5 h-3.5" />
-                Powered by Anthropic Claude
+                Powered by AI
               </div>
 
               <h2 className="text-4xl font-bold text-white leading-tight mb-5">
@@ -699,7 +697,7 @@ export default function LandingPage() {
             <div className="grid md:grid-cols-4 gap-6">
               {[
                 { step: "01", icon: Activity, title: "Patient logs vitals", desc: "Glucose, BP, SpO₂ — even offline. Auto-syncs when back online." },
-                { step: "02", icon: Brain, title: "AI flags anomalies", desc: "Claude analyses trends and surfaces alerts to the doctor instantly." },
+                { step: "02", icon: Brain, title: "AI flags anomalies", desc: "AI analyses trends and surfaces alerts to the doctor instantly." },
                 { step: "03", icon: Bell, title: "Doctor reviews alerts", desc: "Risk-stratified panel makes critical patients immediately visible." },
                 { step: "04", icon: TrendingUp, title: "Care plan updated", desc: "SOAP note drafted, prescription checked, patient notified." },
               ].map(({ step, icon: Icon, title, desc }) => (
@@ -728,7 +726,7 @@ export default function LandingPage() {
               "React + TypeScript",
               "Express + Prisma",
               "PostgreSQL / Supabase",
-              "Anthropic Claude API",
+              "Groq API",
               "Tailwind CSS",
               "FHIR R4 / ABHA",
             ].map((tech) => (
@@ -797,9 +795,7 @@ export default function LandingPage() {
       <footer className="bg-slate-950 py-10 px-6">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center">
-              <Stethoscope className="w-3.5 h-3.5 text-white" />
-            </div>
+            <img src="/arogya-icon.svg" alt="Arogya" className="w-7 h-7" />
             <span className="text-sm font-bold text-white">Arogya</span>
           </div>
           <p className="text-xs text-slate-500">

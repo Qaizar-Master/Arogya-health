@@ -1,15 +1,15 @@
 /**
- * Google Gemini AI client singleton.
+ * Groq AI client singleton.
  * All AI calls flow through this module — swap models or add logging here.
  */
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import Groq from "groq-sdk";
 
-if (!process.env.GEMINI_API_KEY) {
-  console.warn("[ai] GEMINI_API_KEY not set — AI features will be unavailable");
+if (!process.env.GROQ_API_KEY) {
+  console.warn("[ai] GROQ_API_KEY not set — AI features will be unavailable");
 }
 
-export const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? "");
+export const groq = new Groq({ apiKey: process.env.GROQ_API_KEY ?? "" });
 
-export const AI_MODEL = "gemini-2.0-flash";
-export const MAX_TOKENS = 2048;
+export const AI_MODEL = "llama-3.3-70b-versatile";
+export const MAX_TOKENS = 512;

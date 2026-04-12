@@ -16,7 +16,6 @@ import {
   LogOut,
   Pill,
   Settings,
-  Stethoscope,
   Users,
   BarChart3,
 } from "lucide-react";
@@ -94,16 +93,12 @@ export function Sidebar() {
       <div className="flex items-center justify-between px-4 py-5 border-b border-slate-100">
         {!collapsed && (
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center">
-              <Stethoscope className="w-4 h-4 text-white" />
-            </div>
+            <img src="/arogya-icon.svg" alt="Arogya" className="w-8 h-8" />
             <span className="font-bold text-slate-900 tracking-tight">Arogya</span>
           </div>
         )}
         {collapsed && (
-          <div className="w-8 h-8 mx-auto rounded-lg bg-brand-500 flex items-center justify-center">
-            <Stethoscope className="w-4 h-4 text-white" />
-          </div>
+          <img src="/arogya-icon.svg" alt="Arogya" className="w-8 h-8 mx-auto" />
         )}
         {!collapsed && (
           <button

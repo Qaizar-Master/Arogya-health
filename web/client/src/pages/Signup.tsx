@@ -9,7 +9,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useNavigate, Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Stethoscope, Check } from "lucide-react";
+import { Check } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -88,9 +88,7 @@ export default function SignupPage() {
     <div className="min-h-screen bg-gradient-to-br from-brand-50 to-slate-100 flex items-center justify-center p-4">
       <div className="w-full max-w-lg">
         <div className="flex items-center justify-center gap-3 mb-8">
-          <div className="w-10 h-10 rounded-xl bg-brand-500 flex items-center justify-center">
-            <Stethoscope className="w-5 h-5 text-white" />
-          </div>
+          <img src="/arogya-icon.svg" alt="Arogya" className="w-10 h-10" />
           <div>
             <h1 className="text-xl font-bold text-slate-900">Arogya</h1>
             <p className="text-xs text-slate-500">Chronic Disease Management</p>

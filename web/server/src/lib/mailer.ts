@@ -54,7 +54,8 @@ export async function sendMail(options: SendMailOptions): Promise<void> {
     return;
   }
 
-  await transporter.sendMail({ from, ...options });
+  const info = await transporter.sendMail({ from, ...options });
+  console.log(`[mailer] Sent to ${options.to} — messageId: ${info.messageId}`);
 }
 
 export async function sendAlertEmail(
