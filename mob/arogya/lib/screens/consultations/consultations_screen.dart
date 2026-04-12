@@ -33,7 +33,7 @@ class ConsultationsScreen extends ConsumerWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.stethoscope, size: 64, color: Colors.grey),
+                  Icon(Icons.safety_check, size: 64, color: Colors.grey),
                   SizedBox(height: 12),
                   Text('No consultations yet', style: TextStyle(color: Colors.grey)),
                 ],
@@ -112,7 +112,7 @@ class _ConsultCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
-                Icons.stethoscope,
+                Icons.safety_check,
                 color: isUpcoming ? const Color(kBrandGreen) : Colors.grey,
                 size: 22,
               ),
